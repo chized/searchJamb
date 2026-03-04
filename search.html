@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel Row Search</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .search-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        
+        button {
+            padding: 12px 24px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #666;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .result {
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+            background-color: #f9f9f9;
+        }
+        
+        .result h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        
+        .result-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .result-table th {
+            text-align: left;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .result-table td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        .info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Excel Row Search</h1>
+        
+        <div class="info">
+            <strong>Demo Excel File:</strong> 
+            <a href="https://raw.githubusercontent.com/exceljs/exceljs/master/spec/example.xlsx" target="_blank">
+                Sample Excel File
+            </a>
+            <br>
+            <small>This file contains employee data. Try searching for: "John", "Alice", or "Bob"</small>
+        </div>
+        
+        <div class="search-section">
+            <input 
+                type="text" 
+                id="searchField" 
+                placeholder="Enter value to search (e.g., John, Alice, Bob)"
+                onkeypress="handleKeyPress(event)"
+            >
+            <button onclick="searchRow()" id="searchBtn">Search Row</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            ⏳ Searching Excel file...
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <h3>Search Result</h3>
+            <div id="resultContent">
+                <p style="color: #999; text-align: center;">No search performed yet</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include SheetJS library for Excel parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <script>
+        // Your online Excel file URL - replace with your actual file URL
+        //const EXCEL_FILE_URL = 'https://raw.githubusercontent.com/exceljs/exceljs/master/spec/example.xlsx';
+        const EXCEL_FILE_URL ="https://docs.google.com/spreadsheets/d/13Prwa5hEgC5G7aSfJC17Bohh_MkcuWWg/edit?usp=sharing&ouid=110974573623765576033&rtpof=true&sd=true"
+        let cachedData = null; // Cache the parsed data to avoid re-fetching
+        
+        async function fetchExcelData() {
+            try {
+                // Fetch the Excel file
+                const response = await fetch(EXCEL_FILE_URL);
+                const arrayBuffer = await response.arrayBuffer();
+                
+                // Parse the Excel file using SheetJS
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                
+                // Get the first sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // Convert to JSON (array of objects with column headers as keys)
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                
+                // Parse the data structure
+                // First row contains headers
+                const headers = jsonData[0];
+                
+                // Convert remaining rows to objects
+                const rows = [];
+                for (let i = 1; i < jsonData.length; i++) {
+                    const row = {};
+                    jsonData[i].forEach((cell, index) => {
+                        row[headers[index]] = cell;
+                    });
+                    rows.push(row);
+                }
+                
+                return { headers, rows };
+            } catch (error) {
+                console.error('Error fetching Excel file:', error);
+                throw new Error('Failed to load Excel file. Please check the file URL and try again.');
+            }
+        }
+        
+        async function searchRow() {
+            const searchField = document.getElementById('searchField');
+            const searchTerm = searchField.value.trim();
+            
+            // Clear previous results
+            const resultContent = document.getElementById('resultContent');
+            const errorDiv = document.getElementById('error');
+            const loadingDiv = document.getElementById('loading');
+            
+            errorDiv.classList.remove('show');
+            
+            if (!searchTerm) {
+                showError('Please enter a search term');
+                return;
+            }
+            
+            // Show loading state
+            loadingDiv.classList.add('show');
+            document.getElementById('searchBtn').disabled = true;
+            
+            try {
+                // Fetch or use cached Excel data
+                if (!cachedData) {
+                    cachedData = await fetchExcelData();
+                }
+                
+                // Search for the row
+                const foundRows = [];
+                const searchTermLower = searchTerm.toLowerCase();
+                
+                cachedData.rows.forEach((row, index) => {
+                    // Check if any cell value contains the search term
+                    const matches = Object.values(row).some(value => 
+                        value && value.toString().toLowerCase().includes(searchTermLower)
+                    );
+                    
+                    if (matches) {
+                        foundRows.push({ rowNumber: index + 2, data: row }); // +2 because 0-index and header row
+                    }
+                });
+                
+                // Display results
+                displayResults(foundRows, cachedData.headers);
+                
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                // Hide loading state
+                loadingDiv.classList.remove('show');
+                document.getElementById('searchBtn').disabled = false;
+            }
+        }
+        
+        function displayResults(foundRows, headers) {
+            const resultContent = document.getElementById('resultContent');
+            
+            if (foundRows.length === 0) {
+                resultContent.innerHTML = '<p style="color: #999; text-align: center;">No matching rows found</p>';
+                return;
+            }
+            
+            // Build results table
+            let html = `
+                <p><strong>Found ${foundRows.length} matching row(s):</strong></p>
+                <table class="result-table">
+                    <thead>
+                        <tr>
+                            <th>Row #</th>
+                            ${headers.map(header => `<th>${header}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            foundRows.forEach(row => {
+                html += '<tr>';
+                html += `<td>${row.rowNumber}</td>`;
+                headers.forEach(header => {
+                    html += `<td>${row.data[header] !== undefined ? row.data[header] : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            resultContent.innerHTML = html;
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                searchRow();
+            }
+        }
+        
+        // Optional: Pre-load the Excel file when page loads
+        window.addEventListener('load', async () => {
+            try {
+                cachedData = await fetchExcelData();
+                console.log('Excel file pre-loaded successfully');
+            } catch (error) {
+                console.error('Failed to pre-load Excel file:', error);
+                showError('Failed to load Excel file. Please refresh the page or check the file URL.');
+            }
+        });
+    </script>
+</body>
+</html>
