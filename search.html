@@ -26,6 +26,17 @@
             margin-bottom: 30px;
         }
         
+        .debug-info {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
         .search-section {
             display: flex;
             gap: 10px;
@@ -121,6 +132,19 @@
             display: block;
         }
         
+        .success {
+            color: #2e7d32;
+            background-color: #e8f5e9;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .success.show {
+            display: block;
+        }
+        
         .info {
             color: #666;
             font-size: 14px;
@@ -133,15 +157,20 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔍 Excel Row Search</h1>
+        <h1>🔍 Excel Row Search - Debug Version</h1>
+        
+        <div class="debug-info" id="debugInfo">
+            <strong>🔧 Debug Information:</strong><br>
+            Page URL: <span id="pageUrl"></span><br>
+            Attempting to load: <span id="fileName"></span><br>
+            Status: <span id="fileStatus">Not loaded yet</span>
+        </div>
         
         <div class="info">
-            <strong>Demo Excel File:</strong> 
-            <a href="https://raw.githubusercontent.com/exceljs/exceljs/master/spec/example.xlsx" target="_blank">
-                Sample Excel File
-            </a>
-            <br>
-            <small>This file contains employee data. Try searching for: "John", "Alice", or "Bob"</small>
+            <strong>📁 File Requirements:</strong><br>
+            • Excel file must be named: <code>regnum3.xlsx</code><br>
+            • File must be in the SAME folder as this HTML page<br>
+            • Check the debug info above for the exact URL being requested
         </div>
         
         <div class="search-section">
@@ -150,20 +179,22 @@
                 id="searchField" 
                 placeholder="Enter value to search (e.g., John, Alice, Bob)"
                 onkeypress="handleKeyPress(event)"
+                disabled
             >
-            <button onclick="searchRow()" id="searchBtn">Search Row</button>
+            <button onclick="searchRow()" id="searchBtn" disabled>Search Row</button>
         </div>
         
         <div class="loading" id="loading">
             ⏳ Searching Excel file...
         </div>
         
+        <div class="success" id="success"></div>
         <div class="error" id="error"></div>
         
         <div class="result" id="result">
             <h3>Search Result</h3>
             <div id="resultContent">
-                <p style="color: #999; text-align: center;">No search performed yet</p>
+                <p style="color: #999; text-align: center;">Waiting for file to load...</p>
             </div>
         </div>
     </div>
@@ -172,54 +203,147 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     
     <script>
-        // Your online Excel file URL - replace with your actual file URL
-        //const EXCEL_FILE_URL = 'https://raw.githubusercontent.com/exceljs/exceljs/master/spec/example.xlsx';
-
-        const EXCEL_FILE_URL ="regnum3.xlsx"
-        let cachedData = null; // Cache the parsed data to avoid re-fetching
+        // Try different possible filenames
+        const POSSIBLE_FILENAMES = [
+            'regnum3.xlsx',
+            'regnum3.xls',
+            'Regnum3.xlsx',
+            'REGNUM3.XLSX',
+            'data.xlsx',
+            'example.xlsx'
+        ];
         
-        async function fetchExcelData() {
-            try {
-                // Fetch the Excel file
-                const response = await fetch(EXCEL_FILE_URL);
-                const arrayBuffer = await response.arrayBuffer();
-                
-                // Parse the Excel file using SheetJS
-                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-                
-                // Get the first sheet
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                
-                // Convert to JSON (array of objects with column headers as keys)
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                
-                // Parse the data structure
-                // First row contains headers
-                const headers = jsonData[0];
-                
-                // Convert remaining rows to objects
-                const rows = [];
-                for (let i = 1; i < jsonData.length; i++) {
-                    const row = {};
-                    jsonData[i].forEach((cell, index) => {
-                        row[headers[index]] = cell;
-                    });
-                    rows.push(row);
+        let cachedData = null;
+        let loadedFilename = null;
+        
+        // Update debug info
+        function updateDebugInfo(message, filename) {
+            const debugInfo = document.getElementById('debugInfo');
+            document.getElementById('pageUrl').textContent = window.location.href;
+            document.getElementById('fileName').textContent = filename || 'Not specified';
+            document.getElementById('fileStatus').textContent = message;
+        }
+        
+        // Try to load Excel file
+        async function loadExcelFile() {
+            updateDebugInfo('Attempting to find Excel file...', 'searching...');
+            
+            // Try each possible filename
+            for (const filename of POSSIBLE_FILENAMES) {
+                try {
+                    updateDebugInfo(`Trying: ${filename}`, filename);
+                    
+                    // Get the full URL
+                    const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+                    const fileUrl = baseUrl + filename;
+                    
+                    console.log(`Attempting to fetch: ${fileUrl}`);
+                    
+                    const response = await fetch(filename);
+                    
+                    if (response.ok) {
+                        const arrayBuffer = await response.arrayBuffer();
+                        
+                        // Try to parse as Excel
+                        try {
+                            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                            const firstSheetName = workbook.SheetNames[0];
+                            const worksheet = workbook.Sheets[firstSheetName];
+                            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                            
+                            if (jsonData.length > 0) {
+                                const headers = jsonData[0];
+                                const rows = [];
+                                
+                                for (let i = 1; i < jsonData.length; i++) {
+                                    const row = {};
+                                    jsonData[i].forEach((cell, index) => {
+                                        row[headers[index]] = cell;
+                                    });
+                                    rows.push(row);
+                                }
+                                
+                                cachedData = { headers, rows };
+                                loadedFilename = filename;
+                                
+                                // Show success
+                                document.getElementById('success').textContent = `✅ Successfully loaded: ${filename} (${rows.length} rows)`;
+                                document.getElementById('success').classList.add('show');
+                                
+                                // Enable search
+                                document.getElementById('searchField').disabled = false;
+                                document.getElementById('searchBtn').disabled = false;
+                                
+                                updateDebugInfo(`✅ Loaded: ${filename}`, filename);
+                                
+                                // Show preview
+                                displayPreview();
+                                
+                                return true;
+                            }
+                        } catch (parseError) {
+                            console.log(`File ${filename} is not a valid Excel file`);
+                        }
+                    }
+                } catch (error) {
+                    console.log(`Failed to load ${filename}:`, error.message);
                 }
-                
-                return { headers, rows };
-            } catch (error) {
-                console.error('Error fetching Excel file:', error);
-                throw new Error('Failed to load Excel file. Please check the file URL and try again.');
             }
+            
+            // If we get here, no file was found
+            updateDebugInfo('❌ No Excel file found', 'Not found');
+            showError('Could not find regnum3.xlsx in the same folder. Please check:');
+            
+            // Show helpful message
+            const errorDiv = document.getElementById('error');
+            errorDiv.innerHTML = `
+                <strong>🔍 Debug Information:</strong><br>
+                1. Current page URL: ${window.location.href}<br>
+                2. Looking for file in: ${window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1)}<br>
+                3. Tried filenames: ${POSSIBLE_FILENAMES.join(', ')}<br>
+                4. Make sure regnum3.xlsx is uploaded to the same GitHub folder as this HTML file<br>
+                5. Check that the filename is EXACTLY "regnum3.xlsx" (case-sensitive!)
+            `;
+            errorDiv.classList.add('show');
+            
+            return false;
+        }
+        
+        function displayPreview() {
+            if (!cachedData) return;
+            
+            const previewRows = cachedData.rows.slice(0, 5);
+            const resultContent = document.getElementById('resultContent');
+            
+            let html = `
+                <p><strong>📋 File Preview (first 5 rows of ${cachedData.rows.length} total):</strong></p>
+                <table class="result-table">
+                    <thead>
+                        <tr>
+                            <th>Row #</th>
+                            ${cachedData.headers.map(header => `<th>${header}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            previewRows.forEach((row, index) => {
+                html += '<tr>';
+                html += `<td>${index + 2}</td>`;
+                cachedData.headers.forEach(header => {
+                    html += `<td>${row[header] !== undefined ? row[header] : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            resultContent.innerHTML = html;
         }
         
         async function searchRow() {
             const searchField = document.getElementById('searchField');
             const searchTerm = searchField.value.trim();
             
-            // Clear previous results
             const resultContent = document.getElementById('resultContent');
             const errorDiv = document.getElementById('error');
             const loadingDiv = document.getElementById('loading');
@@ -231,38 +355,33 @@
                 return;
             }
             
-            // Show loading state
+            if (!cachedData) {
+                showError('Excel file not loaded yet');
+                return;
+            }
+            
             loadingDiv.classList.add('show');
             document.getElementById('searchBtn').disabled = true;
             
             try {
-                // Fetch or use cached Excel data
-                if (!cachedData) {
-                    cachedData = await fetchExcelData();
-                }
-                
-                // Search for the row
                 const foundRows = [];
                 const searchTermLower = searchTerm.toLowerCase();
                 
                 cachedData.rows.forEach((row, index) => {
-                    // Check if any cell value contains the search term
                     const matches = Object.values(row).some(value => 
                         value && value.toString().toLowerCase().includes(searchTermLower)
                     );
                     
                     if (matches) {
-                        foundRows.push({ rowNumber: index + 2, data: row }); // +2 because 0-index and header row
+                        foundRows.push({ rowNumber: index + 2, data: row });
                     }
                 });
                 
-                // Display results
                 displayResults(foundRows, cachedData.headers);
                 
             } catch (error) {
                 showError(error.message);
             } finally {
-                // Hide loading state
                 loadingDiv.classList.remove('show');
                 document.getElementById('searchBtn').disabled = false;
             }
@@ -276,7 +395,6 @@
                 return;
             }
             
-            // Build results table
             let html = `
                 <p><strong>Found ${foundRows.length} matching row(s):</strong></p>
                 <table class="result-table">
@@ -309,20 +427,14 @@
         }
         
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !document.getElementById('searchBtn').disabled) {
                 searchRow();
             }
         }
         
-        // Optional: Pre-load the Excel file when page loads
+        // Start loading when page loads
         window.addEventListener('load', async () => {
-            try {
-                cachedData = await fetchExcelData();
-                console.log('Excel file pre-loaded successfully');
-            } catch (error) {
-                console.error('Failed to pre-load Excel file:', error);
-                showError('Failed to load Excel file. Please refresh the page or check the file URL.');
-            }
+            await loadExcelFile();
         });
     </script>
 </body>
